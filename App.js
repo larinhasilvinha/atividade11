@@ -1,234 +1,122 @@
 import React, { useState } from "react";
-import {
-  View,
-  Button,
-  Image,
-  StyleSheet,
-  Text,
-  Alert,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-} from "react-native";
+import { View, Button, Image, FlatList, Text, TouchableOpacity, StyleSheet } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
-import CryptoJS from "crypto-js";
-
+import SHA1 from "crypto-js/sha1";
 export default function App() {
-  const [image, setImage] = useState(null);
-  const [uploadResult, setUploadResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+const [images, setImages] = useState([]);
+const [uploading, setUploading] = useState(false);
+const CLOUD_NAME = "dgyr3qwph";
+const UPLOAD_PRESET = "atividade11";
+const API_KEY = "553237575988372";
+const API_SECRET = "h0KS2H_WNrG-mh7B39Y81hHUgq8";
+const pickImage = async () => {
+const result = await ImagePicker.launchImageLibraryAsync({
+mediaTypes: ImagePicker.MediaTypeOptions.Images,
+allowsEditing: true,
+quality: 1,
+});
+if (!result.canceled) {
+uploadImage(result.assets[0].uri);
+}
+};
+const uploadImage = async (uri) => {
+try {
+setUploading(true);
+const response = await fetch(uri);
+const blob = await response.blob();
+const data = new FormData();
+const publicId = `ifpe_${Date.now()}`;
+data.append("public_id", publicId);
+data.append("file", blob);
+data.append("upload_preset", UPLOAD_PRESET);
+data.append("folder", "ifpe");
+data.append("tags", "ifpeaula");
+const upload = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+method: "POST",
+body: data,
+});
+const result = await upload.json();
+if (result.secure_url) {
+const newImage = {
+url: result.secure_url,
+public_id: result.public_id,
+};
+setImages([...images, newImage]);
+} else {
+alert("Erro ao fazer upload");
+}
+} catch (error) {
+alert("Erro no upload!");
+console.log(error);
+} finally {
 
-  // 🔹 Credenciais Cloudinary
-  const cloudName = "dgyr3qwph";
-  const folder = "ifpe";
-  const apiKey = "553237575988372";
-  const apiSecret = "h0KS2H_WNrG-mh7B39Y81hHUgq8";
-
-  // 🔹 Selecionar imagem
-  const pickImage = async () => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permissão negada", "Você precisa permitir o acesso à galeria.");
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const imageUri = result.assets[0].uri;
-        setImage(imageUri);
-        console.log("Imagem selecionada:", imageUri);
-        uploadImage(imageUri);
-      } else {
-        console.log("Nenhuma imagem selecionada.");
-      }
-    } catch (error) {
-      console.error("Erro ao abrir a galeria:", error);
-      Alert.alert("Erro", "Não foi possível abrir a galeria.");
-    }
-  };
-
-  // 🔹 Upload para o Cloudinary
-  const uploadImage = async (uri) => {
-    try {
-      setLoading(true);
-      const timestamp = Math.floor(Date.now() / 1000);
-      const stringToSign = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
-      const signature = CryptoJS.SHA1(stringToSign).toString();
-
-      let base64Img;
-
-      if (Platform.OS === "web") {
-        const blob = await fetch(uri).then((r) => r.blob());
-        base64Img = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result.split(",")[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        base64Img = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-      }
-
-      const formData = new FormData();
-      formData.append("file", `data:image/jpeg;base64,${base64Img}`);
-      formData.append("api_key", apiKey);
-      formData.append("timestamp", timestamp);
-      formData.append("signature", signature);
-      formData.append("folder", folder);
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      const data = await response.json();
-      console.log("Resultado do upload:", data);
-
-      if (data.secure_url) {
-        setUploadResult(data);
-        Alert.alert("✅ Upload concluído!", "Imagem enviada com sucesso!");
-      } else {
-        Alert.alert("Erro no upload", JSON.stringify(data));
-      }
-    } catch (error) {
-      console.error("Erro no upload:", error);
-      Alert.alert("Erro no upload", "Não foi possível enviar a imagem.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🔹 Excluir imagem do Cloudinary
-  const deleteImageFromCloudinary = async () => {
-    if (!uploadResult?.public_id) return;
-
-    try {
-      setLoading(true);
-      const timestamp = Math.floor(Date.now() / 1000);
-      const stringToSign = `public_id=${uploadResult.public_id}&timestamp=${timestamp}${apiSecret}`;
-      const signature = CryptoJS.SHA1(stringToSign).toString();
-
-      const formData = new FormData();
-      formData.append("public_id", uploadResult.public_id);
-      formData.append("signature", signature);
-      formData.append("api_key", apiKey);
-      formData.append("timestamp", timestamp);
-
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      const result = await response.json();
-      console.log("Resultado exclusão:", result);
-
-      if (result.result === "ok") {
-        Alert.alert("🗑️ Imagem excluída com sucesso!");
-      } else {
-        Alert.alert("⚠️ Falha ao excluir", JSON.stringify(result));
-      }
-    } catch (error) {
-      console.error("Erro ao excluir imagem:", error);
-      Alert.alert("Erro", "Não foi possível excluir a imagem do Cloudinary.");
-    } finally {
-      setImage(null);
-      setUploadResult(null);
-      setLoading(false);
-    }
-  };
-
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>📸 Upload para Cloudinary</Text>
-
-      {!image && !loading && (
-        <Button title="Selecionar imagem" onPress={pickImage} color="#007AFF" />
-      )}
-
-      {loading && <Text style={{ marginTop: 20 }}>⏳ Processando...</Text>}
-
-      {image && (
-        <View style={styles.imageBox}>
-          <Image source={{ uri: image }} style={styles.image} resizeMode="contain" />
-
-          {uploadResult && (
-            <Text style={styles.successText}>✅ Upload realizado com sucesso!</Text>
-          )}
-
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={deleteImageFromCloudinary}
-          >
-            <Text style={styles.deleteButtonText}>🗑️ Excluir imagem</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </ScrollView>
-  );
+setUploading(false);
+}
+};
+const deleteImage = async (publicId) => {
+try {
+const timestamp = Math.floor(Date.now() / 1000);
+const signature = SHA1(
+`public_id=${publicId}&timestamp=${timestamp}${API_SECRET}`
+).toString();
+const formData = new FormData();
+formData.append("public_id", publicId);
+formData.append("signature", signature);
+formData.append("api_key", API_KEY);
+formData.append("timestamp", timestamp);
+const del = await fetch(
+`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/destroy`,
+{
+method: "POST",
+body: formData,
+}
+);
+const result = await del.json();
+console.log("Delete result:", result);
+if (result.result === "ok") {
+setImages((prev) => prev.filter((img) => img.public_id !== publicId));
+alert("Imagem excluída com sucesso!");
+} else {
+alert("■■ Erro ao excluir no Cloudinary!");
+}
+} catch (error) {
+console.log("Erro ao excluir", error);
+alert("Não foi possível excluir");
+}
+};
+return (
+<View style={styles.container}>
+<Button title={uploading ? "Enviando..." : "Selecionar Imagem"} onPress={pickImage} />
+<FlatList
+data={images}
+keyExtractor={(item) => item.public_id}
+renderItem={({ item }) => (
+<View style={styles.item}>
+<Image source={{ uri: item.url }} style={styles.image} />
+<TouchableOpacity style={styles.deleteBtn} onPress={() => deleteImage(item.public_id)}>
+<Text style={{ color: "#fff" }}>Excluir</Text>
+</TouchableOpacity>
+</View>
+)}
+/>
+</View>
+);
 }
 
-// 🔹 Estilos
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    backgroundColor: "#f9f9f9",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  imageBox: {
-    alignItems: "center",
-    marginTop: 20,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 15,
-    width: "100%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  image: {
-    width: 300,
-    height: 300,
-    borderRadius: 10,
-  },
-  deleteButton: {
-    marginTop: 15,
-    backgroundColor: "#ff3b30",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  deleteButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  successText: {
-    marginTop: 10,
-    color: "green",
-    fontWeight: "600",
-  },
+container: { flex: 1, paddingTop: 40, paddingHorizontal: 10 },
+item: {
+marginVertical: 10,
+backgroundColor: "#eee",
+padding: 10,
+borderRadius: 10,
+alignItems: "center",
+},
+image: { width: 200, height: 400, borderRadius: 10 },
+deleteBtn: {
+marginTop: 10,
+backgroundColor: "red",
+padding: 10,
+borderRadius: 8,
+},
 });
